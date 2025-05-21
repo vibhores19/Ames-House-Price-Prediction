@@ -1,0 +1,1799 @@
+---
+title: "Predicting House sales pricing with linear regression "
+author: "Vibhore Singh"
+date: "2024-05-01"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+always_allow_html: true
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+```{r}
+rm(list = ls())
+```
+
+
+#Title: "Predicting House sales pricing with linear regression "
+
+
+
+# Abstract 
+
+Predicting real estate prices is one of the most challenging task in data science. House price fluctuations in the real estate market occur due to the effects of several reasons. Our study tried to develop a linear regression model using the comprehenside data set of Ames housing sales based on 81 features.
+
+Our approach involves rigorous exploratory data analysis to identify significant predictors and manage missing values, followed by feature engineering to enhance model inputs. We employ linear regression techniques, acknowledging its advantages in interpretability and implementation for real estate valuation. The initial phase of the project involved a thorough exploratory data analysis (EDA) aimed at understanding the distribution of the data, handling missing values, and identifying potential outliers. Significant features impacting house prices were highlighted through correlation analysis and visual  inspections. The linear regression model was selected for its simplicity and interpretability. Trained the model on several feature subsets and evaluated using r squared and rmse values with the final model showing a robust fit to the data. This study could be a great help to Homeowners , Realestate agents, Policy makers, etc by helping them understand how specific featues can impactt the valuation of the property. 
+
+
+## Dataset
+
+-The Ames Housing dataset was compiled by Dean De Cock for use in data science education. It contains 2930 observations and a large number of explanatory variables (23 nominal, 23 ordinal, 14 discrete, and 20 continuous) involved in assessing home prices in Ames, Iowa from 2006 to 2010.
+
+- The dataset includes a wide range of features that describe almost every aspect of residential homes. It includes features such as living area, basement, garage, pool. neighborhood.
+- The author has tried to give a dataset suitable for deeper analysis and advanced regression techniques.
+
+
+## Domain Expertise for Analysis
+
+- Understanding of Seasons : We used the Season variable from the Months variable to analyse the buying and seeling habbits for different proprties. We found out summer is the best season for real estate agents as the prices are high and the count is high as well .
+
+- Econonomic Factors like the financial crisis of 2008 affected the sales of houses but the market came back on time. This gives real estate agents an idea about keeping an eye on the global issues as they can can influence economy and furter their business as well. so they can decide which is the time to see and when the market is down they can prepare for the better time.
+
+- We found out additional things like Basements, Fireplace are really appreciated bt the buyrs. 
+
+
+
+
+
+
+# Loading Libraries
+```{r, echo=FALSE,results='hide',warning=FALSE,message=FALSE}
+library(knitr)
+library(tidyverse)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(ggplot2)
+library(GGally)
+library(reshape2)
+library(naniar)
+library(car)
+library(modelr)
+library(moments)
+library(corrplot)
+library(forcats)
+library(plotly)
+```
+# Data Loading
+
+```{r , echo= TRUE, warning=FALSE}
+train <- read_csv("train.csv")
+test <- read.csv("test.csv")
+```
+
+
+
+
+# Data Structure Overview
+```{r , echo= TRUE}
+summary(train)
+
+```
+
+### Some observations from the summary statistics 
+
+-  'LotFrontage' shows a mean greater than the median (70.05 vs. 69.00), suggesting a right skew in the distribution
+- OverallQual With a mean and median close to 6 (6.099 vs. 6.000), most houses have above average quality. The range from 1 to 10 also suggests significant variability in house overall quality
+- GrLivArea has the mean and median values 1515 vs. 1464 that are close, but the max value (5642) is very high, indicating potential outliers or luxury homes with large living areas.
+- The target variable SalePrice has a wide range from $34,900 to $755,000, with a mean significantly higher than the median ($180,921 vs. $163,000), suggesting a right-skewed distribution.
+
+
+
+
+```{r, echo=TRUE}
+
+
+str(train)
+```
+```{r , echo=TRUE}
+head(train)
+
+```
+
+
+# Distribution of the target variable
+
+```{r}
+
+ #Visualize histogram SalePrice
+
+ggplot(data = train, mapping = aes(x = SalePrice)) + 
+  geom_histogram(bins = 15, color = "black", fill = "blue")+
+  scale_x_continuous(labels = scales::comma)
+
+```
+
+
+
+## Check for Skewness and Kurtosis
+
+```{r}
+# Calculate skewness
+skew <- skewness(train$SalePrice)
+kurt <- kurtosis(train$SalePrice)
+cat("Skewness:", skew, "\nKurtosis:", kurt, "\n")
+```
+
+The skewness value of 1.563515 indicates that the distribution is moderately skewed to the right, while the kurtosis value of 6.862666 indicates the data has heavy tails, implying a higher chance of higher values.
+
+
+
+### Check for Outliers in the SalesPrice
+```{r}
+boxplot(train$SalePrice, horizontal = TRUE, main = "SalePrice")
+```
+
+```{r}
+boxplot.stats(train$SalePrice)$out
+
+```
+
+
+```{r}
+# Plot mean sale price against YearSold with colorful theme
+ggplot(train, aes(x = GrLivArea, y = SalePrice, color = SalePrice)) +
+  geom_point(size = 3) +  # Increase point size
+  labs(x = "GrLivArea", y = "Sale Price") +
+  ggtitle("Relationship between Sales price and Living area") +
+  theme(  # Customize the theme
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    axis.title.x = element_text(size = 12, hjust = 0.5),
+    axis.title.y = element_text(size = 12, hjust = 0.5),
+    legend.position = "right"
+  ) +
+  scale_color_gradient(low = "blue", high = "red")  +
+  scale_y_continuous(labels = scales::comma_format()) +
+  scale_x_continuous(breaks = seq(0,6000, by = 1000))  
+
+```
+#### We've identified outliers in the sale price column, notably those showcasing unusually large houses sold at remarkably cheap prices. As the dataset author's recommended, we'll exclude any houses with a living area exceeding 4000 square feet from our analysis.
+
+
+```{r}
+# Subset the dataframe to exclude rows where "GrLivArea" is over 4000
+train <- train[train$GrLivArea <= 4000, ]
+```
+
+
+
+
+
+# Log Transformation
+```{r, warning=FALSE}
+
+
+train_log <-  train
+
+train_log$sp_log <- log(train$SalePrice)
+
+
+ggplot(data = train_log, mapping = aes(x = sp_log, fill = ..count..)) + 
+  geom_histogram(bins = 15)+
+  xlab("Log of Sale Price") +
+  ylab("Count")
+
+
+```
+
+After the log transformation the distribution looks more normally distributed.
+
+
+
+## Check for the missing values in every column
+```{r, echo=FALSE}
+##find missing value:
+train %>% is.na() %>% colSums()
+
+```
+## Check for Duplicate samples.
+```{r, echo=FALSE}
+
+# Check the number of duplicate rows
+duplicates <- train[duplicated(train), ]
+num_duplicates <- nrow(duplicates)
+
+# Print the number of duplicate rows
+print(paste("There are", as.character(num_duplicates), "duplicate rows "))
+
+```
+Now lets start to impute the NA values .
+
+First create two subsets containing numerical and categorical data respectively.
+
+```{r}
+
+# Selecting columns with object (string) data type as categorical variables
+category_var <- train[, sapply(train, is.character)]
+
+# Selecting columns excluding the object (string) data type as numerical variables
+num_var <- train[, !sapply(train, is.character)]
+
+# Printing the number of categorical features in the dataset
+cat_var_count <- ncol(category_var)
+print(paste("Number of categorical features are:", cat_var_count))
+
+# Printing the number of numerical features in the dataset
+num_var_count <- ncol(num_var)
+print(paste("Number of numerical features are:", num_var_count))
+
+
+```
+
+
+### checking the number of missing values in each column
+
+``` {r, echo = T}
+
+# Make a list of features with missing values
+features_with_na <- names(train)[apply(train, 2, function(x) any(is.na(x)))]
+
+# Print the feature name and the number of missing values
+for (feature in features_with_na) {
+  num_missing <- sum(is.na(train[[feature]]))
+  cat(feature, ":", num_missing, "missing values\n")
+}
+
+
+```
+
+
+### Identifying features with missing values and creating a dataframe to store information about these missing values.
+
+```{r}
+#  features with missing values
+na_variables <- names(train)[colSums(is.na(train)) > 0]
+
+# Create a data frame to store feature names, their missing value counts, and percentage of missing values
+na_df <- data.frame(feature = character(), na_count = numeric(), percent_missing = numeric(), stringsAsFactors = FALSE)
+
+# Populate the data frame with feature names, missing value counts, and percentage of missing values
+for (i in na_variables) {
+  missing_no <- sum(is.na(train[[i]]))
+  percent_missing <- missing_no / nrow(train) * 100  # Calculate percentage of missing values
+  na_df <- rbind(na_df, data.frame(feature = i, na_count = missing_no, percent_missing = percent_missing))
+}
+```
+### plotting the number of missing value
+```{r}
+# Plot the feature names against the number of missing values
+ggplot(na_df, aes(x = feature, y = na_count)) +
+  geom_bar(stat = "identity", fill = "skyblue", width = 0.7) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        axis.title.x = element_text(size = 12, hjust = 0.5),
+        axis.title.y = element_text(size = 12, hjust = 0.5),
+        legend.position = "right") +
+  labs(title = "Number of Missing Values by Feature", x = "Feature", y = "Number of Missing Values") +
+  scale_y_continuous(breaks = seq(200,1600, by = 200))  
+```
+### Plotting the percentage of missing values 
+```{r, fig.width=15 }
+# Plot the feature names against the number of missing values
+
+ggplot(na_df, aes(x = feature, y = percent_missing)) +
+  geom_bar(stat = "identity", fill = "skyblue", width = 0.9) +
+  geom_hline(yintercept = 75, color = "red", linetype = "dashed") + # Add horizontal line at 75%
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        axis.title.x = element_text(size = 12, hjust = 0.5),
+        axis.title.y = element_text(size = 12, hjust = 0.5),
+        legend.position = "right") +
+  labs(title = "% of Missing Values", x = "Feature", y = "% of Missing Values") +
+  scale_y_continuous(breaks = seq(0,100, by = 20))  
+
+
+```
+## Observation : We can clearly see from the above graph there are four columns that are missing over 75% of their values. These columns are Alley, Fence, MiscFeature,PoolQC. From the graph, it's evident that four columns stand out—they're missing more than 75% of their values. These columns—Alley, Fence, MiscFeature, and PoolQC—clearly show that over three-quarters of their information is missing.
+
+But this doesn't mean we can remove them directly. As having Na value in there means the houses don't have these resources anf that might impact the target variable.
+
+
+### Visualise the missing values 
+```{r , fig.width=25,fig.height= 8}
+vis_miss(train)
+```
+
+### Extracting feature names with NA values and preparing data.
+
+```{r}
+
+# Extract feature names from na_df
+features <- na_df$feature
+
+# Subset the train data frame to include only columns with names matching features_to_select
+na_columns <- train[, features]
+
+
+# Selecting columns with object (string) data type as categorical variables
+category_na <- na_columns[, sapply(na_columns, is.character)]
+
+# Selecting columns excluding the object (string) data type as numerical variables
+num_na <- na_columns[, !sapply(na_columns, is.character)]
+
+# Printing the number of categorical features in the dataset
+cat_na_count <- ncol(category_na)
+print(paste("Number of categorical features with NA are:", cat_na_count))
+
+# Printing the number of numerical features in the dataset
+num_na_count <- ncol(num_na)
+print(paste("Number of numerical features with NA are:", num_na_count))
+```
+
+Here we see that out of 19 columns that are missing only 3 are numeric . So First we will try to impute the numerical variables that contain NAs.
+
+### Analyzing correlation between numerical variables and target variable.
+
+```{r}
+# Loop through numeric columns
+for (col in names(num_na)) {
+  # Create logical vector indicating complete cases for the current column and "SalePrice"
+  complete_cases <- complete.cases(train[[col]], train$SalePrice)
+  
+  # Calculate correlation between the current column and "SalePrice" after removing NA values
+  correlation <- cor(train[[col]][complete_cases], train$SalePrice[complete_cases])
+  
+  # Print the correlation coefficient
+  print(paste("Correlation between", col, "and SalePrice:", correlation))
+}
+
+  
+```
+
+
+### Imputing missing values in LotFrontage and MasVnrArea by grouping and median
+
+The missing values in the LotFrontage variable were addressed through imputation to maintain the integrity of our dataset . For LotFrontage, we grouped data by Neighborhood and BldgType and replaced missing values with the median of each subgroup.  Similarly, for MasVnrArea, which denotes masonry veneer area, we grouped the data by MSSubClass and Exterior1st.
+
+
+```{r}
+train <- as.data.frame(train %>% 
+                       group_by(Neighborhood, BldgType ) %>% 
+                       mutate(LotFrontage = ifelse(is.na(LotFrontage),
+                      median(LotFrontage, na.rm = TRUE),LotFrontage)))
+
+
+
+train <- as.data.frame(train %>% 
+                       group_by(MSSubClass, Exterior1st) %>%
+                         mutate(MasVnrArea = if_else(is.na(MasVnrArea), 
+                          median(MasVnrArea, na.rm = TRUE), MasVnrArea)))
+
+```
+
+
+```{r, echo = TRUE}
+sum(is.na(train$LotFrontage))
+```
+ Since there are still 2values left we will apply the same process again 
+```{r}
+train <- as.data.frame(train %>% 
+                       group_by(Neighborhood ) %>% 
+                       mutate(LotFrontage = ifelse(is.na(LotFrontage),
+                      median(LotFrontage, na.rm = TRUE),LotFrontage)))
+```
+
+
+```{r, echo = TRUE}
+sum(is.na(train$LotFrontage))
+```
+
+```{r}
+num_na$SalePrice <- train$SalePrice
+```
+
+Check the correlation between the numerical variables which contained NA values with the sales price
+```{r , echo=FALSE, cache=FALSE, fig.width=10,fig.height=10,results=TRUE, warning=FALSE, comment=FALSE, message=FALSE}
+# Compute correlation matrix
+correlation_matrix <- cor(num_na[, sapply(num_na, is.numeric)], use = "pairwise.complete.obs")
+
+# Melt the correlation matrix for ggplot2
+correlation_melted <- melt(correlation_matrix)
+
+# Create correlation heatmap
+ggplot(correlation_melted, aes(x = Var1, y = Var2, fill = value, label = round(value, 2))) +
+  geom_tile() +
+  geom_text(color = "black", size = 5) +  
+  scale_fill_gradient2(low = "yellowgreen", high = "tomato2", mid = "white", midpoint = 0, limit = c(-1,1), space = "Lab", name = "Correlation") +
+  coord_fixed() +
+  ylab("Variable 2") +
+  xlab("Variable 1") +
+  ggtitle("Correlation Heatmap") +
+  theme(plot.title = element_text(size = 25, face = "bold", hjust = 0.5),
+        legend.position = "right",
+        axis.text.x = element_text(angle = 45, vjust = 1, size = 20, hjust = 1),
+        axis.text.y = element_text(vjust = 1, size = 20, hjust = 1),
+        axis.title.x = element_blank(), axis.title.y = element_blank())
+
+```
+
+```{r}
+# Function to create box plots for each column
+create_boxplots <- function(dataframe) {
+  # Reshape the dataframe into long format for easier plotting
+  df_long <- tidyr::gather(dataframe, key = "variable", value = "value", na.rm = TRUE)
+  
+  # Create box plot with facet wrap
+  ggplot(df_long, aes(x = variable, y = value)) +
+    geom_boxplot() +
+    labs(title = "Box Plot of Columns") +
+    facet_wrap(~ variable, scales = "free") +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))  # Rotate x-axis labels if needed
+}
+```
+
+```{r}
+create_bar <- function(cols, df) {
+  for (col in cols) {
+    order.cols <- names(sort(table(df[, col]), decreasing = TRUE))
+  
+    num.plot <- ggplot(df, aes_string(x = col)) +
+      geom_bar(fill = 'blue') +
+      geom_text(stat = 'count', aes(label = ..count..), vjust = -0.5) +
+      theme_minimal() +
+      scale_y_continuous(limits = c(0, max(table(df[, col])) * 1.1)) +
+      scale_x_discrete(limits = order.cols) +
+      xlab(col) +
+      theme(axis.text.x = element_text(angle = 30, size = 12))
+  
+    print(num.plot)
+  }
+}
+
+```
+
+
+
+```{r, echo = TRUE}
+subset_with_na <- train[is.na(train$GarageYrBlt), ]
+
+sum(is.na(subset_with_na$GarageType))
+```
+
+
+Now we see that the rows with NA value for the column GarageYrBlt also has the NA value for GarageType. The dataset description says that Na value in GarageType means there is no garage and thus making GarageYrBlt obsolete for the data sample. Hence we are replacing the NA with 0
+
+```{r}
+train$GarageYrBlt[is.na(train$GarageYrBlt)] <- 0
+
+```
+
+
+
+```{r}
+#Select the columns of na
+cols<- names(num_na)
+
+# Subset train dataframe using the column names from num_na
+na_ex <- train[cols]
+```
+
+
+
+```{r}
+ggpairs(na_ex, aes(colour = "blue", alpha = 0.2), lower=list(combo=wrap("facethist",  
+binwidth=0.5)))
+```
+
+
+
+```{r}
+# Call the function to create box plots
+create_boxplots(na_ex)
+```
+
+```{r}
+rm(num_na, na_ex, subset_with_na, col,cols,cat_var_count,cat_na_count, complete_cases)
+
+```
+
+So till now we have imputed the NA values in the numerical column. Next we try to remove the NA values in Categorical columns. These columns have na values in them
+
+```{r}
+colnames(category_na)
+```
+```{r}
+top_na_df <- head(na_df[order(-na_df$percent_missing), ], 5)
+
+# Print the top 5 rows
+print(top_na_df)
+```
+```{r, fig.width=20}
+vis_miss(train)
+```
+
+Now we can see that Alley, Fence, MiscFeature,PoolQC, FireplaceQu have approximately 50 % and above missing values. So we will try to impute those values and check if they are significant to our variable.
+According to the dataset description,Na values in Alley, Fence, MiscFeature,PoolQC, FireplaceQu, Bsmt, Garage etc means the houses don't have these things. So we can not just drop them . 
+
+Hence we decided to Replace missing values in the columns with "None"
+```{r}
+
+ 
+train$Alley[is.na(train$Alley)] <- "None"
+
+train$FireplaceQu[is.na(train$FireplaceQu)] <- "None"
+
+train$PoolQC[is.na(train$PoolQC)] <- "None"
+
+train$Fence[is.na(train$Fence)] <- "None"
+
+train$MiscFeature[is.na(train$MiscFeature)] <- "None"
+
+train$MasVnrType[is.na(train$MasVnrType)] <- "None"
+
+
+```
+
+
+
+```{r}
+year_columns <- grep("Year|Yr", names(train), value = TRUE)
+bsmt_columns <- grep("Bsmt", names(category_var), value = TRUE)
+garage_columns <- grep("Garage", names(train), value = TRUE)
+
+
+```
+
+Replace missing values in the columns with "None", Iterate over each column that contains Bsmt and Garage and replace missing values with "None"
+```{r}
+# 
+for (col in garage_columns) {
+  train[[col]][is.na(train[[col]])] <- "None"
+}
+```
+
+
+
+```{r}
+for (col in bsmt_columns) {
+  train[[col]][is.na(train[[col]])] <- "None"
+}
+```
+
+
+### Check again for the columns  containing missing values
+```{r}
+train %>% is.na() %>% colSums()
+```
+ Since Electrical has just one row which is missing , we decide to drop that row.
+```{r}
+
+train <- train[complete.cases(train$Electrical), ]
+```
+### Plot gain and see if any missing values are left 
+```{r, fig.width=20}
+vis_miss(train)
+```
+
+
+```{r, echo=TRUE}
+sum(is.na(train))
+```
+
+
+Finally all the NA values have been imputed. 
+
+
+
+
+
+
+
+
+
+## Problem1  : How the mean and meadian Sales Prices for each neaghborhood vary from 2006 to 2010 and compare with each other. 
+
+
+```{r, fig.width =20, fig.height= 5}
+
+
+
+neighborhood_prices <- train %>%
+  group_by(YrSold, Neighborhood) %>%
+  summarise(
+    MeanPrice = mean(SalePrice, na.rm = TRUE),
+    MedianPrice = median(SalePrice, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+p <- ggplot(neighborhood_prices, aes(x = YrSold)) +
+  geom_line(aes(y = MeanPrice, colour = "Mean"), size = 1) +  # Mean price line
+  geom_line(aes(y = MedianPrice, colour = "Median"), size = 1, linetype = "dashed") +  # Median price line
+  scale_color_manual(values = c("Mean" = "blue", "Median" = "red")) +  # Set colors for lines
+  labs(title = "Mean and Median Sale Price by Year Across Neighborhoods",
+       x = "Year Sold", y = "Sale Price", color = "Legend") +
+  facet_wrap(~Neighborhood, scales = "free_y") +  # Facet by neighborhood, free y scale for each plot
+  theme_minimal() +  # Minimal theme
+  theme(legend.position = "bottom")  # Position the legend at the bottom
+
+# Step 3: Display the plot
+print(p)
+
+```
+
+
+
+
+The graph represents a series of subplots each corresponding to a different neighborhood. Each subplot shows trends in both mean and median sale prices from 2006 to 2010. While the mean is sensitive to outliers, the median can give a better sense of the central tendency when distributions are skewed by very high or very low values.
+
+
+### Key Observations from the graph
+
+- Some neighborhoods show stable prices over the years, while others show sharp increases or decreases.Example: "NridgHt" showed less volatility and maintain higher price levels, suggesting a stable and potentially high-value market.
+- Almost all of the neighborhoods show rapid decrease in sales price in 2007/2008 due to the global economic fluctuations.
+- Post 2008 most neighborhoods seem to recver from the crisis showing the econmy had recovered a bit . for example Gilbert in 2009 had almost the same mean and median price as it had in 2006
+- The difference between mean and median prices in some neighborhoods can suggest the presence of outliers—highly priced sales that move the mean upwards.
+- Some neighborhoods like Mitchell after the 2007/08 dip, show consistent upward or stable trends, potentially indicating steady market demand and growth. This could be due the the building of some good entities. in the neighborhood like park, school etc
+- NridgHt" and NoRidge consistently show higher sale prices representing affluency of the neighborhood.
+- Meadow seem to have the lowest sale prices and they keep on dropping every year.
+
+
+
+
+
+
+
+ 
+
+## Problem2  : How sales numbers vary for every month over different years. 
+
+
+```{r}
+custom_palette <- c("lightblue", "darkblue", "lightgreen", "darkred", 
+                    "lightcyan", "darkorange", "lightpink", "darkgreen",
+                    "yellow", "brown", "lightyellow", "darkcyan")
+
+
+# Aggregate data by Year and Month
+month_year_counts <- aggregate(SalePrice ~ YrSold + MoSold, data = train, FUN = length)
+
+# Create stacked bar plot
+ggplot(month_year_counts, aes(x = YrSold, y = SalePrice, fill = factor(MoSold))) +
+  geom_bar(stat = "identity") +
+  labs(title = "Distribution of Sales Across Months by Year",
+       x = "Year", y = "Number of Sales") +
+  scale_fill_manual(values = custom_palette, name = "Month") +
+  theme_minimal()
+
+```
+
+
+The graph shows a stacked bar chart representation of number of  sales for each month from 2006 to 2010. Each bar represents a year, and each segment of the bar corresponds to a month, color-coded to differentiate between the months. The graph helps in a visual comparison of sales activity across different months of the year and across the five-year span.
+
+
+### Key observations from the graph 
+- Sales peak during the summer months (especially May, June, and July), showing these are the most popular months for buying homes.
+- No of sales in December, January, and February suggests a seasonal slowdown for the sales in winter months.
+- Sales numbers fluctuate from year to year reflecting changes in the housing market.for example the july has more sales in 2006 , less in 2007 even thought the volume of sales in 2007 were more than in 200- 
+- Despite the volume of sales fluctuates yearly, the pattern remains consistent that peaks in summer and lowest in winter.
+- Real Estate Workers can use this information to push their advertising and open house events more in May and June when more people are looking to buy.
+
+
+```{r}
+# Define a function to map months to seasons
+map_month_to_season <- function(month) {
+  if (month %in% c(5, 6, 7)) {
+    return("Summer")
+  } else if (month %in% c(8, 9, 10)) {
+    return("Autumn")
+  } else if (month %in% c(11, 12, 1)) {
+    return("Winter")
+  } else if (month %in% c(2, 3, 4)) {
+    return("Spring")
+  } else {
+    return("Unknown")
+  }
+}
+
+# Apply the function to create a new column for seasons
+train$Season <- sapply(train$MoSold, map_month_to_season)
+
+```
+
+
+## Problem 3  :How did the number of home sales in Ames, Iowa fluctuate seasonally and annually 
+
+
+```{r}
+
+# Aggregate data by Year and Season
+season_year_counts <- aggregate(SalePrice ~ YrSold + Season, data = train, FUN = length)
+
+# Create stacked bar plot
+ggplot(season_year_counts, aes(x = YrSold, y = SalePrice, fill = Season)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Distribution of Sales Across Seasons by Year",
+       x = "Year", y = "Number of Sales") +
+  scale_fill_manual(values = c("Summer" = "tomato", "Autumn" = "yellow", 
+                                "Winter" = "cyan", "Spring" = "lightgreen")) +
+  theme_minimal()
+
+```
+The graph illustrates the number of property sales broken down by season for each year from 2006 through 2010. 
+
+### Key Observations
+
+- Summer is the most dominant  season followed by spring  in regards of house sales.with over 100 properties sold every year.
+- Sales in winter are the lowest.
+- Sales in 2010 are visibly lower than in any previous year for every season, indicating a possible slowdown
+
+
+
+
+
+## Problem 4  : Investigating the economic diversity and real estate market dynamics in each neighborhood?
+
+
+```{r, fig.width=25,fig.height=12}
+
+
+# Get unique neighborhoods and their count
+neighborhood_counts <- table(train$Neighborhood)
+
+# Define custom color palette with sufficient colors
+custom_colors <- rainbow(length(neighborhood_counts))
+
+# Plot with customizations
+ggplot(train, aes(x = SalePrice, fill = factor(Neighborhood))) +
+  geom_histogram(bins = 30, color = "black", alpha = 0.6) +
+  scale_fill_manual(values = custom_colors) +  # Use custom color palette
+  facet_wrap(~Neighborhood, ncol = 5, scales = "free") +  # Adjust number of columns for facets
+  labs(title = "Distribution of Sale Prices by Neighborhood", x = "Sale Price", y = "Frequency") +  # Add titles and labels
+  theme_minimal() +  # Use minimal theme
+  theme(legend.position = "bottom",  # Adjust legend position
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 10),  # Rotate x-axis labels
+        strip.text = element_text(face = "bold", size = 15),  # Bolden facet labels
+        plot.title = element_text(size = 14, hjust = 0.5),  # Adjust plot title size and alignment
+        panel.grid.major = element_line(color = "gray", linetype = "dashed"),  # Add dashed grid lines
+        panel.grid.minor = element_blank())  # Remove minor grid lines
+
+
+```
+
+
+
+The graph presents a series of histograms that depict the frequency distribution of sale prices within specific neighborhoods revealing how different neighborhoods cater to various economic segments.
+
+###Observations
+- Neighborhoods display varied price distributions, indicating economic diversity across Ames
+- NridgHt and StoneBr stand out with a significant number of transactions in the higher price brackets i.e over $ 200,000
+-  MeadowV show a concentration of sales in the lower price ranges (under $100k), indicating it may have more affordable housing options.
+- Sawyer, BrkSide, and NAmes exhibit a distribution of sales around ($100k-$200k), suggesting a real estate market appealing to a middle-class.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## Problem 5  : Investigating the Variation in Building Type Sales Across Seasons and Years during the financial crisis of 2008"
+
+```{r, fig.width =15}
+# Define custom colors
+custom_colors <- c("tomato", "green", "yellow", "blue", "grey")
+
+# Assuming 'train' is your dataset with a 'Season' column
+analysis <- train %>%
+  filter(YrSold >= 2007 & YrSold <= 2009) %>%
+  group_by(YrSold, Season, BldgType) %>%
+  summarise(
+    SalesCount = n(),
+    .groups = 'drop'
+  )
+
+# Plotting the stacked bar graph
+ggplot(analysis, aes(x = as.factor(YrSold), y = SalesCount, fill = BldgType)) +
+  geom_bar(stat = "identity", position = "stack") +
+  facet_wrap(~ Season, scales = "free_x", nrow = 1) +
+  scale_fill_manual(values = custom_colors) +  # Setting custom colors
+  labs(title = "Number of Sales by Season and Year (2007-2009)",
+       subtitle = "Comparing the number of sales across different seasons and years for each building type",
+       x = "Year Sold",
+       y = "Number of Sales",
+       fill = "Building Type") +
+  theme_minimal()
+
+
+
+
+```
+
+
+
+The stacked bar chart is displaying the total number of property sales divided by five building types: 1-Family Detached (1Fam), 2-Family Conversion (2fmCon), Duplex, Townhouse (Twnhs), and Townhouse End Unit (TwnhsE) for each season thoroughout the economic crisis. This graph effectively highlights how different types of buildings fared in terms of sales across different seasons during the critical period. 
+
+### Key observation
+-  This graph also shows for every year Summer is the highest selling season even during the time of economic crisis.
+-  1 Fam building sales was the highest in every season in all the three years of the period. 1Fam showed remarkable resilience during the financial crisis, maintaining an upward trajectory in sale prices despite the economic crisis.
+-  Summer sees the highest sales volumes and winter sees the least 
+-  Spring sales didn't suffer because of the crisis.
+-  Sales of TwnhsE are low but stayed stable in every year with summer taking the majority of sales. 
+-  showed high vulnerability to financial change as it had a steep drop after 2008
+-  Summer sales showed massive recovery in 2009 after the crisis for every building type.
+
+
+
+
+
+## Problem 6 :  How have home sales trends varied across different neighborhoods throughout the years. #
+
+
+
+```{r, fig.width=15}
+# Count sales by neighborhood and year
+sales_by_neighborhood <- train %>%
+  group_by(Neighborhood, YrSold) %>%
+  summarise(SalesCount = n(), .groups = 'drop')
+
+# Plot stacked bar chart
+ggplot(sales_by_neighborhood, aes(x = Neighborhood, y = SalesCount, fill = as.factor(YrSold))) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(title = "Sales Count by Neighborhood and Year", x = "Neighborhood", y = "Sales Count") +
+  scale_fill_brewer(palette = "Paired") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 15))
+
+```
+The stacked bar chart representing the number of home sales per year in each neighborhood from 2006 to 2010.
+
+
+### Observations
+- There is significant variability in sales counts across neighborhoods, suggesting diverse housing market dynamics.
+- The year 2008 does not show a uniform decline across all neighborhoods, which might indicate that some areas were more resilient or even unaffected by the economic
+- Some neighborhoods, such as 'OldTown' and 'Edwards', display a consistent number of sales each year, indicating stability 
+- Certain neighborhoods consistently showed great sales numbers across the years, such as 'NAmes', 'CollgCr'.
+
+
+
+
+
+## Problem 7 : # How do average sale prices vary by seasons across different neighborhoods
+
+
+
+
+```{r , fig.width= 15}
+
+
+# Group data by Neighborhood and Season and calculate average Sale Price
+seasonal_prices <- train %>%
+  group_by(Neighborhood, Season) %>%
+  summarise(AveragePrice = mean(SalePrice, na.rm = TRUE), .groups = 'drop') %>%
+  arrange(Neighborhood, Season)
+
+# Convert to a plotly interactive plot
+p <- ggplot(seasonal_prices, aes(x = Season, y = AveragePrice, group = Neighborhood, color = Neighborhood)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Seasonal Sale Price Trends by Neighborhood",
+       x = "Season",
+       y = "Average Sale Price")
+
+# Convert ggplot to plotly for interactivity
+ggplotly(p)
+
+```
+
+
+The above aims to show the seasonal influences on house prices telling us when might be an optimal time to buy or sell properties in specific neighborhoods. This can help real estate investors, homeowners, and market analysts to make informed decisions. 
+
+### Key observations from the graph:
+
+- .The graph shows considerable variability in average sale prices for different seasons for different neighborhoods. Some neighborhoods show significant price changes between seasons, while others are more stable throughout. 
+- Each neighborhood exhibits unique seasonal pricing trends for example the neighborhood Veenker has a very high average values for the winter season whereas winter has the lease average sales price for most neighborhoods.
+- Summer/Spring seems to have better average prices in most of the neighborhoods whereas the in autumn we see decline in prices and winter has the lease prices . This infers that spring and summer are good season to sell and Winter is the the best time according to SalePrice.
+- IDOTRR and MeadowW have the constantly lowest price  among all the neighborhoods
+- NridgHt and NoRidgHt are the most affluent neighborhood where the prices stayed almost constant throughout the year.
+
+
+
+
+
+
+
+
+
+
+
+## Problem 8 : How does lot size impact the sale price of properties across different zoning types 
+
+
+```{r}
+plot_data <- train %>%
+  filter(MSZoning %in% c("A", "C", "FV", "I", "RH", "RL", "RP", "RM")) %>%  
+  select(SalePrice, LotArea, MSZoning)
+
+ggplot(plot_data, aes(x = LotArea, y = SalePrice, color = MSZoning)) +
+  geom_point(alpha = 0.6) +  
+  geom_smooth(method = "lm", se = FALSE, color = "black") +  
+  scale_x_log10(labels = scales::comma) +  
+  labs(title = "Impact of Lot Size on Sale Price by Zoning Type",
+       x = "Lot Area (log scale)", 
+       y = "Sale Price",
+       color = "Zoning Type") +
+  theme_minimal() +
+  theme(legend.position = "bottom")  
+
+```
+The graph visualizes the relationship between lot area and sale price across different zoning types. The x-axis represents the lot area on a logarithmic scaleto represent the wide range of lot sizes while the y-axis represents the sale price. Different colors represent different zoning types. A black line indicates a linear regression fit through the data.
+
+### Key Observations 
+
+- . The regression line shows a general positive correlation between lot size and sale price. This makes sense as normally larger lots tend to have higher sale price.
+2.FV (Floating Village Residential) shows medium lot sizes with a high variation in sale prices.
+- RL show a wide spread in sale prices at similar lot sizes indicating there are other factors impacting the sale prices beyond just lot size.
+- There are noticeable outliers, particularly in zones like RL and RM
+
+
+
+## Problem9: How do home sale prices distribute across various property conditions within different years
+
+
+
+```{r, fig.width=15, fig.height=5}
+data <- train %>% 
+  mutate(ConditionFactor = as.factor(SaleCondition)) 
+
+# Create the stacked histogram
+ggplot(data, aes(x = SalePrice, fill = ConditionFactor)) +
+  geom_histogram(binwidth = 10000, position = "stack") +  # Adjust binwidth as appropriate
+  facet_wrap(~ YrSold) +  # Create a panel for each year
+  labs(title = "Distribution of Sale Prices by Property Condition Over Years",
+       x = "Sale Price", y = "Frequency", fill = "Condition Rating") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Paired") 
+
+```
+
+ 
+ 
+ The graph shows a series of histograms for each year from 2006 to 2010. These histograms show the frequency of sale prices categorized by the condition of the property at the time of sale
+ 
+ # Key observtions
+ 
+ -  Normal Sales condition dominates in all years representing the  most properties are sold under typical market conditions
+ 2.There is a noticeable increase in 'Abnormal' sales in 2008, which may correspond with the financial crisis
+ - The histograms from year to year show fluctuations in both the number of sales and the price distribution reflecting changes in market conditions
+ - Sales under conditions like AdjLand and Alloca  are rare across all years
+
+
+
+
+
+
+Some other Visualisations that I did to explore the data. We used ggplot and plot_ly as well. SInce the plot_ly graphs were not rendered on pdf , I request you to please go through the code or the html version of the file
+
+
+```{r}
+
+# Calculate the mean sale price for each year
+mean_sales_by_year <- train %>%
+  group_by(YearBuilt) %>%
+  summarize(mean_sale_price = mean(SalePrice, na.rm = TRUE), .groups = "drop")
+
+# Plot mean sale price against YearSold with colorful theme
+ggplot(mean_sales_by_year, aes(x = YearBuilt, y = mean_sale_price, color = mean_sale_price)) +
+  geom_point(size = 3) +  # Increase point size
+  labs(x = "YearBuilt", y = "Mean Sale Price") +
+  ggtitle("Mean Sale Price by Year Built") +
+  theme(  # Customize the theme
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    axis.title.x = element_text(size = 12, hjust = 0.5),
+    axis.title.y = element_text(size = 12, hjust = 0.5),
+    legend.position = "right"
+  ) +
+  scale_color_gradient(low = "green", high = "red")  +
+  scale_y_continuous(labels = scales::comma_format()) +
+  scale_x_continuous(breaks = seq(floor(min(mean_sales_by_year$YearBuilt) / 10) * 10, ceiling(max(mean_sales_by_year$YearBuilt) / 10) * 10, by = 20))  
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+library(plotly)
+library(dplyr)
+
+# Prepare data
+time_data <- train %>%
+  mutate(Date = as.Date(paste(YrSold, MoSold, "01", sep = "-"))) %>%
+  group_by(Date) %>%
+  summarise(AveragePrice = mean(SalePrice, na.rm = TRUE),
+            SalesVolume = n(),
+            .groups = 'drop') %>%
+  arrange(Date)
+
+# Create plot
+p <- plot_ly() %>%
+  add_lines(data = time_data, x = ~Date, y = ~AveragePrice, name = 'Average Sale Price', line = list(color = 'blue')) %>%
+  add_lines(data = time_data, x = ~Date, y = ~SalesVolume, name = 'Sales Volume', yaxis = 'y2', line = list(color = 'red')) %>%
+  layout(title = "Sales Trends Over Time",
+         xaxis = list(title = "Date"),
+         yaxis = list(title = "Average Sale Price"),
+         yaxis2 = list(title = "Sales Volume", overlaying = "y", side = "right"),
+         legend = list(x = 0.8, y = 0.98))
+
+# Display plot
+p
+
+```
+
+
+
+
+
+
+
+
+```{r}
+# Prepare data
+neighborhood_data <- train %>%
+  group_by(Neighborhood, BldgType) %>%
+  summarise(SalesCount = n(), .groups = 'drop')
+
+# Create plot
+p <- plot_ly(data = neighborhood_data, x = ~Neighborhood, y = ~SalesCount, type = 'bar', color = ~BldgType, colors = 'Paired') %>%
+  layout(title = "Property Sales by Neighborhood and Building Type",
+         xaxis = list(title = "Neighborhood"),
+         yaxis = list(title = "Number of Sales"),
+         barmode = 'stack')
+
+# Display plot
+p
+
+```
+
+
+
+```{r }
+library(plotly)
+
+# Create plot
+p <- plot_ly(data = train, x = ~GrLivArea, y = ~SalePrice, mode = 'markers', 
+             type = 'scatter', 
+             marker = list(size = 10, opacity = 0.5, color = ~YrSold, colorscale = 'Viridis'),
+             hoverinfo = 'text',
+             text = ~paste('Price: ', SalePrice, '<br>Year Sold: ', YrSold, '<br>Living Area: ', GrLivArea)) %>%
+  layout(title = "Relationship Between Living Area and Sale Price",
+         xaxis = list(title = "Ground Living Area (sq ft)"),
+         yaxis = list(title = "Sale Price"))
+
+# Display plot
+p
+
+
+```
+
+## Feature Engineering
+
+Since most of the variables are discrete, we will encode them into numeric. 
+
+```{r , echo = TRUE}
+# Selecting columns with object (string) data type as categorical variables
+category_var <- train[, sapply(train, is.character)]
+
+
+
+# Printing the number of categorical features in the dataset
+cat_var_count <- ncol(category_var)
+print(paste("Number of categorical features are:", cat_var_count))
+
+
+```
+
+
+
+```{r, echo = TRUE}
+train$GarageCars <- as.numeric(train$GarageCars)
+train$GarageArea <- as.numeric(train$GarageArea)
+train$GarageYrBlt <- as.numeric(train$GarageYrBlt)
+```
+
+
+### Make a list of discrete columns
+```{r, echo = TRUE}
+# List of columns to convert
+columns_to_convert <- c(
+  "Alley", "BsmtCond", "BsmtExposure", "BsmtFinType1", "BsmtFinType2", "BsmtQual", "ExterCond", "ExterQual", "FireplaceQu", "Functional", "GarageCond", "GarageQual", "HeatingQC", "KitchenQual", "LandSlope", "LotShape", "PavedDrive", "PoolQC", "Street", "Utilities", "MSZoning", "LandContour", "LotConfig", "Condition1", "Condition2", "BldgType", "HouseStyle", "RoofStyle", "RoofMatl", "Exterior1st", "Exterior2nd", "MasVnrType", "Foundation", "Heating", "CentralAir", "Electrical", "GarageType", "GarageFinish", "Fence", "MiscFeature", "SaleType", "SaleCondition", "Neighborhood"
+)
+
+
+
+```
+
+
+
+### Check for the distinct value counts foe each discrete variables
+```{r, fig.width=40,fig.height=60}
+# Reshape the data to long format
+long_data <- train %>%
+  pivot_longer(cols = columns_to_convert, names_to = "Variable", values_to = "Value") %>%
+  drop_na(Value) 
+# Create the plot with default color handling
+ggplot(long_data, aes(x = Value, fill = factor(Value))) +
+  geom_bar(color = "black", alpha = 0.6) +
+  facet_wrap(~ Variable, ncol = 5, scales = "free_x") +  # Adjust number of columns for facets
+  labs(title = "Value Counts for Categorical Columns", x = "Category", y = "Count") +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        legend.text = element_text(size = 18),  
+        legend.title = element_text(size = 16),  
+        legend.key.size = unit(1.5, "lines"), 
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 15),
+        strip.text = element_text(face = "bold", size = 20),
+        plot.title = element_text(size = 20, hjust = 0.5),
+        panel.grid.major = element_line(color = "gray", linetype = "dashed"),
+        panel.grid.minor = element_blank())
+
+
+```
+
+
+### Encode them into numeric
+```{r, echo = TRUE}
+## Convert the columns to numeric
+for (col in columns_to_convert) {
+  
+  factors <- factor(train[[col]])
+    nn <- as.numeric(factors)
+  
+  # Replace the original column with the numeric values in the dataframe
+  train[[col]] <- nn
+}
+```
+
+
+
+
+## Make new Features using the older ones 
+
+```{r, echo = TRUE}  
+
+train$Total_living_area <-  train$GrLivArea + train$TotalBsmtSF
+train$Total_Bath <- train$FullBath + (0.5*train$HalfBath) + train$BsmtFullBath + (0.5 * train$BsmtHalfBath)
+train$Pool <- ifelse(train$PoolArea > 0, 1, 0)
+train$Garage <- ifelse(train$GarageArea > 0, 1, 0)
+train$No_Of_Floors <- ifelse(train$`2ndFlrSF` > 0, 2, 1)
+train$Overall_Score <- train$OverallCond * train$OverallQual
+train$Exter_Score <- train$ExterCond * train$ExterQual
+train$Expensive_Misc <- ifelse(train$MiscVal > 600, 1, 0)
+train$Luxury_Score <- train$Pool +train$Garage + train$Fireplaces + train$Expensive_Misc + train$Total_Bath + train$No_Of_Floors
+
+```
+
+
+```{r, echo = TRUE}
+
+ # Calculate the differences
+train$House_age <- train$YrSold - train$YearBuilt
+train$Remodel_age <- train$YrSold - train$YearRemodAdd
+
+```
+
+
+
+```{r}
+num_var <- train[, !sapply(train, is.character)]
+
+```
+
+### We created a dataframe with the every columns correlation score with the target vriable and order them 
+```{r}
+# Initialize an empty list to store correlation values
+cor_mat <- list()
+
+# Iterate over each column in num_var
+for (col in colnames(num_var)) {
+  # Compute correlation with SalePrice
+  correlation <- cor(train[[col]], train$SalePrice, use = "pairwise.complete.obs")
+  # Append the correlation to the list
+  cor_mat[[col]] <- correlation
+}
+
+# Convert the list to a data frame
+correlation_df <- data.frame(variable = names(cor_mat), correlation = unlist(cor_mat))
+
+# Order by absolute correlation in descending order
+correlation_df <- correlation_df[order(-abs(correlation_df$correlation)), ]
+
+
+```
+Then we print the top ten  features with highest correlation value to get a view of the correlation data. 
+```{r}
+head(correlation_df, n=10)
+```
+
+### Deleting the columns with less that 0,40 correlation score 
+
+```{r, echo = TRUE}
+low_correlation <- correlation_df[!abs(correlation_df$correlation) >= .40, ]
+
+```
+
+
+```{r, echo = TRUE}
+# Get the column names to be removed
+cols_to_remove <- low_correlation$variable
+
+# Remove columns from train
+train1 <- train[, !names(train) %in% cols_to_remove]
+
+```
+
+### Make Correlation Matrix for the remaining numrical columns
+```{r , echo=FALSE, cache=FALSE, fig.width=70,fig.height=70,results=TRUE, warning=FALSE, comment=FALSE, message=FALSE}
+
+# Compute correlation matrix
+correlation_matrix <- cor(train1[ , sapply(train1, is.numeric)], use = "pairwise.complete.obs")
+
+# Melt the correlation matrix for ggplot2
+correlation_melted <- melt(correlation_matrix)
+# Create correlation heatmap with doubled sizes
+ggplot(correlation_melted, aes(x = Var1, y = Var2, fill = value, label = round(value, 2))) +
+  geom_tile(color = "black", size = 3) +  # Double the box size
+  geom_text(color = "black", size = 10) +  # Double the text size
+  scale_fill_gradient2(low = "yellowgreen", high = "tomato2", mid = "white", midpoint = 0, limit = c(-1,1), space = "Lab", name = "Correlation") +
+  coord_fixed() +
+  ggtitle("Correlation Heatmap") +
+  theme(plot.title = element_text(size = 32, face = "bold", hjust = 0.5), 
+        legend.position = "right",
+        legend.text = element_text(size = 40),  
+        legend.title = element_text(size =45),  
+        legend.key.size = unit(7, 'lines'), 
+        axis.text.x = element_text(angle = 45, vjust = 1, size = 35, hjust = 1), 
+        axis.text.y = element_text(vjust = 1, size = 35, hjust = 1), 
+        axis.title.x = element_text(size = 20),  
+        axis.title.y = element_text(size = 20), 
+        panel.grid = element_blank())  
+
+
+
+```
+
+
+
+```{r}
+train1$LogSalesPrice <- log(train1$SalePrice)
+```
+
+
+```{r}
+df_train <- train1
+```
+
+
+
+## Now that the training data is cleaned and fit for modelling we will do the same for test data as well. We will use the same process for test data as well. 
+
+
+```{r}
+# Subset the dataframe to exclude rows where "GrLivArea" is over 4000
+test <- test[test$GrLivArea <= 4000, ]
+```
+
+
+
+## Check for Duplicate samples.
+```{r, echo=FALSE}
+
+# Check the number of duplicate rows
+duplicates <- test[duplicated(test), ]
+num_duplicates <- nrow(duplicates)
+
+# Print the number of duplicate rows
+print(paste("There are", as.character(num_duplicates), "duplicate rows "))
+
+```
+
+
+```{r}
+
+# Selecting columns with object (string) data type as categorical variables
+cat_var <- test[, sapply(test, is.character)]
+
+# Selecting columns excluding the object (string) data type as numerical variables
+num_var <- test[, !sapply(test, is.character)]
+
+# Printing the number of categorical features in the dataset
+cat_var_count <- ncol(cat_var)
+print(paste("Number of categorical features are:", cat_var_count))
+
+# Printing the number of numerical features in the dataset
+num_var_count <- ncol(num_var)
+print(paste("Number of numerical features are:", num_var_count))
+
+
+```
+
+
+
+
+```{r}
+#  features with missing values
+na_variables <- names(test)[colSums(is.na(test)) > 0]
+
+# Create a data frame to store feature names, their missing value counts, and percentage of missing values
+na_df <- data.frame(feature = character(), na_count = numeric(), percent_missing = numeric(), stringsAsFactors = FALSE)
+
+# Populate the data frame with feature names, missing value counts, and percentage of missing values
+for (i in na_variables) {
+  missing_no <- sum(is.na(test[[i]]))
+  percent_missing <- missing_no / nrow(test) * 100  # Calculate percentage of missing values
+  na_df <- rbind(na_df, data.frame(feature = i, na_count = missing_no, percent_missing = percent_missing))
+}
+```
+
+
+
+
+
+```{r}
+
+# Extract feature names from na_df
+features <- na_df$feature
+
+# Subset the test data frame to include only columns with names matching features_to_select
+na_columns <- test[, features]
+
+
+# Selecting columns with object (string) data type as categorical variables
+cat_na <- na_columns[, sapply(na_columns, is.character)]
+
+# Selecting columns excluding the object (string) data type as numerical variables
+num_na1 <- na_columns[, !sapply(na_columns, is.character)]
+
+# Printing the number of categorical features in the dataset
+cat_na_count <- ncol(cat_na)
+print(paste("Number of categorical features with NA are:", cat_na_count))
+
+# Printing the number of numerical features in the dataset
+num_na1_count <- ncol(num_na1)
+print(paste("Number of numerical features with NA are:", num_na1_count))
+```
+
+
+
+```{r}
+test$GarageYrBlt[is.na(test$GarageYrBlt)] <- 0
+
+```
+
+
+
+
+```{r}
+garage_columns <- grep("Garage|Bsmt", names(num_na1), value = TRUE)
+
+
+```
+
+```{r}
+# 
+for (col in garage_columns) {
+  test[[col]][is.na(test[[col]])] <- 0
+}
+```
+
+
+
+```{r}
+test <- as.data.frame(test %>% 
+                       group_by(Neighborhood ) %>% 
+                       mutate(LotFrontage = ifelse(is.na(LotFrontage),
+                      median(LotFrontage, na.rm = TRUE),LotFrontage)))
+
+
+
+test <- as.data.frame(test %>% 
+                       group_by(ExterCond) %>%
+                         mutate(MasVnrArea = if_else(is.na(MasVnrArea), 
+                          median(MasVnrArea, na.rm = TRUE), MasVnrArea)))
+```
+
+
+
+```{r}
+
+ 
+test$Alley[is.na(test$Alley)] <- "None"
+
+test$FireplaceQu[is.na(test$FireplaceQu)] <- "None"
+
+test$PoolQC[is.na(test$PoolQC)] <- "None"
+
+test$Fence[is.na(test$Fence)] <- "None"
+
+test$MiscFeature[is.na(test$MiscFeature)] <- "None"
+
+test$MasVnrType[is.na(test$MasVnrType)] <- "None"
+
+
+```
+
+
+
+
+```{r}
+garage_columns <- grep("Garage|Bsmt", names(cat_na), value = TRUE)
+
+
+```
+
+```{r}
+#
+for (col in garage_columns) {
+  test[[col]][is.na(test[[col]])] <- "None"
+}
+```
+
+
+
+
+```{r, echo = TRUE}
+test <- test[complete.cases(test), ]
+
+```
+
+
+
+
+
+
+```{r, fig.width=20}
+vis_miss(test)
+```
+
+
+
+Finally all the NA values have been imputed. 
+
+
+
+#############################################################################################
+
+
+
+## Feature Engineering
+
+
+
+```{r, echo = TRUE}
+for (col in columns_to_convert) {
+  
+  factors <- factor(test[[col]])
+    nn <- as.numeric(factors)
+  
+  test[[col]] <- nn
+}
+```
+
+
+```{r, echo = TRUE}  
+
+test$Total_living_area <-  test$GrLivArea + test$TotalBsmtSF
+test$Total_Bath <- test$FullBath + (0.5*test$HalfBath) + test$BsmtFullBath + (0.5 * test$BsmtHalfBath)
+test$Pool <- ifelse(test$PoolArea > 0, 1, 0)
+test$Garage <- ifelse(test$GarageArea > 0, 1, 0)
+test$No_Of_Floors <- ifelse(test$X2ndFlrSF > 0, 2, 1)
+test$Overall_Score <- test$OverallCond * test$OverallQual
+test$Exter_Score <- test$ExterCond * test$ExterQual
+test$Expensive_Misc <- ifelse(test$MiscVal > 600, 1, 0)
+test$Luxury_Score <- test$Pool +test$Garage + test$Fireplaces + test$Expensive_Misc + test$Total_Bath + test$No_Of_Floors
+
+```
+
+
+```{r, echo = TRUE}
+
+ # Calculate the differences
+test$House_age <- test$YrSold - test$YearBuilt
+test$Remodel_age <- test$YrSold - test$YearRemodAdd
+
+```
+
+
+
+
+```{r}
+# Find common columns between df_train and test
+common_cols <- intersect(names(df_train), names(test))
+
+# Subset test dataset to include only common columns
+df_test <- test[, common_cols]
+
+# Print the structure of df_test
+colnames(df_test)
+
+```
+
+
+```{r}
+df_test$`1stFlrSF` <-  test$X1stFlrSF
+```
+
+
+
+```{r}
+df_test$LogSalesPrice <- log(df_test$SalePrice)
+```
+
+
+
+# Modelling 
+
+```{r}
+quality_columns <- grep("Qual|Score", names(df_train), value = TRUE)
+subset_quality <- df_train[, c("LogSalesPrice", quality_columns)]
+
+```
+
+```{r}
+age_columns <- grep("age|Year", names(df_train), value = TRUE)
+subset_age <- df_train[, c("LogSalesPrice",age_columns)]
+
+
+```
+
+```{r}
+utility_columns <- grep("Bsmt|Garage|Bath|Fire ", names(df_train), value = TRUE)
+subset_utility <- df_train[, c("LogSalesPrice", utility_columns)]
+
+```
+
+
+
+```{r}
+colnames(df_train)
+```
+
+
+```{r}
+
+model_all <- lm(SalePrice ~ ., data = df_train)
+
+model1 <- lm(LogSalesPrice ~ OverallQual+
+                            Total_living_area+ GrLivArea+ Luxury_Score+
+                     GarageCars+ Total_Bath+ TotalBsmtSF+ Overall_Score,  data = df_train)
+
+model2 <- lm(LogSalesPrice ~ ., data = subset_quality)
+
+model3 <- lm(LogSalesPrice ~ ., data = subset_utility)
+
+model4 <- lm(LogSalesPrice ~ ., data = subset_age)
+
+model5 <- lm(LogSalesPrice ~ OverallQual + YearBuilt + YearRemodAdd + MasVnrArea + ExterQual + BsmtQual + TotalBsmtSF + HeatingQC +
+                 `1stFlrSF` + GrLivArea + FullBath + KitchenQual + TotRmsAbvGrd + Fireplaces + GarageType + GarageFinish +
+                 GarageCars + GarageArea, data = df_train)
+
+
+
+```
+
+```{r}
+summary(model_all)
+```
+
+```{r}
+outlierTest(model_all)
+
+```
+
+```{r}
+summary(model1)
+
+```
+```{r}
+outlierTest(model1)
+
+```
+
+
+```{r}
+summary(model2)
+
+```
+```{r}
+outlierTest(model2)
+
+```
+```{r}
+summary(model3)
+
+```
+```{r}
+outlierTest(model3)
+
+```
+
+```{r}
+summary(model4)
+
+
+```
+
+```{r}
+outlierTest(model4)
+
+```
+
+```{r}
+summary(model5)
+```
+
+```{r}
+outlierTest(model5)
+```
+
+
+
+These are the R squared values of all the models 
+
+```{r}
+# Extract adjusted R-squared for each model
+adjusted_r_squared <- c(summary(model_all)$adj.r.squared,
+                        summary(model1)$adj.r.squared,
+                        summary(model2)$adj.r.squared,
+                        summary(model3)$adj.r.squared,
+                        summary(model4)$adj.r.squared,
+                        summary(model5)$adj.r.squared)
+
+adjusted_r_squared
+```
+
+
+```{r}
+# Assuming you have names for your models, e.g., "Model All", "Model 1", etc.
+model_names <- c("Model All", "Model  1 ", "Model  2 ", "Model  3 ", "Model  4 ")
+
+# Create a named vector for adjusted R-squared
+names(adjusted_r_squared) <- model_names
+
+# Printing model names with their corresponding adjusted R-squared values
+cat("Adjusted R-squared values:\n")
+for (name in model_names) {
+  cat(name, ":", adjusted_r_squared[name], "\n")
+}
+
+```
+We can clearly se whenn the top correlated variables are used we get the highest R-squared values. But we also get 0.86 R squared value for Model 1 where we use the top correlated variables. We will use the same model on the test data.
+
+## Following are the significant predictors for all the models 
+
+```{r}
+significant_predictors <- lapply(list(model_all, model1, model2, model3, model4), function(model) {
+  coef_summary <- summary(model)$coefficients
+  significant_vars <- coef_summary[coef_summary[, 4] < 0.05, , drop = FALSE]
+  return(row.names(significant_vars))
+})
+print( significant_predictors )
+```
+
+
+
+## test data 
+
+
+```{r}
+
+model_lm <- lm(LogSalesPrice ~ OverallQual + YearBuilt + YearRemodAdd + MasVnrArea + ExterQual + BsmtQual + TotalBsmtSF + HeatingQC +
+                 `1stFlrSF` + GrLivArea + FullBath + KitchenQual + TotRmsAbvGrd + Fireplaces + GarageType + GarageFinish +
+                 GarageCars + GarageArea, data = df_test)
+
+```
+
+```{r}
+summary(model_lm)
+```
+
+We can see the Rsquared value is 0.88 which is very close to the R squared value to the model5 that we are using. We trained the model on the  OverallQual, YearBuilt , YearRemodAdd , MasVnrArea , ExterQual , BsmtQual , TotalBsmtSF ,  HeatingQC , `1stFlrSF` , GrLivArea , FullBath , KitchenQual , TotRmsAbvGrd , Fireplaces , GarageType , GarageFinish ,GarageCars , GarageArea. 
+
+
+```{r}
+outlierTest(model_lm)
+```
+
+# Evaluation
+
+
+### Predicting the model on new data. 
+```{r}
+predicted_prices <- predict(model_lm, newdata = df_test)
+
+```
+
+
+
+
+### Calculating RMSE
+```{r}
+actual_log_prices <- df_test$LogSalesPrice
+
+# Create a data frame with actual and predicted log sale prices
+comparison_df <- data.frame(Actual = actual_log_prices, Predicted = predicted_prices)
+
+# Calculate RMSE
+rmse <- sqrt(mean((actual_log_prices - predicted_prices)^2))
+
+# Print RMSE
+cat("RMSE:", rmse, "\n")
+
+```
+
+
+
+```{r}
+plot(model_lm ,1)
+```
+
+- The above graph is the residuals vs fitted graph. The residuals mostly cluster around the zero line, which suggests that the model generally fits well across the range of predictions.
+-Notable outliers are labeled (e.g., 372, 77, 580).
+- There's no clear non-linear pattern
+
+```{r}
+plot(model_lm, 4)
+```
+## Use predictions from your final model to compare suburbs which have shown varying growth.
+
+
+Our Regression equation is  LogSalePrice =  LogSalePrice = 3.808 + 0.08643 × OverallQual + 0.001601 × YearBuilt + ... + 0.0001172 × GarageArea . 
+
+Now we can put the data for these rows for each neighbourhood and we can find the best suburbs and compare all of them after converting them back from log value. 
+
+
+
+# Conclusions and recomendations
+
+- We loaded the data.
+_ we imputed the missing values.
+- For numerical variables we grouped them and then replaced with median of the group 
+- For discrete variables we encode them into numeric.
+- We did some more feature engineering and added some variables as well.
+- We used  linear regrssion models to predict the sales prices.
+- we found the best model with 0.88 Rsquared and 0.14 RMSE. 
+- Overall Quality , year built and Living area were the most significant factors. 
+- further we can explorew the use of other regressors like random forests, or multiple linear regression.
+
+
+
+
+
+# Reference 
+
+##### References: Big vote of thanks to all the references mentioned below here. Without which I would have not successfully able to complete linear modelling for multivariable data set.
+
+https://www.youtube.com/playlist?list=PLZoTAELRMXVPQyArDHyQVjQxjj_YmEuO9
+https://github.com/krishnaik06/Advanced-House-Price-Prediction-
+http://jse.amstat.org/v19n3/decock.pdf
+https://www.geeksforgeeks.org/label-encoding-in-r-programming/
+
